@@ -120,10 +120,21 @@ func main() {
 
 ```
 
+### Supported field types
+
+- Array
+- Bool
+- Float*
+- Int*
+- Slice
+- String
+- Struct (including inbounded structs)
+- Uint*
+
 # Limitations
 
 Current version of Flapper has a number of limitations:
-- Array and Slice types are not supported
+- Map type is not supported
 - Channel type is not supported
 - Complex* types are not surpported
 - Embedded types are not supported

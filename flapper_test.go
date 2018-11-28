@@ -20,6 +20,11 @@ func TestMarshal(t *testing.T) {
     C bool
     D TStruct2
     e string
+    F []string
+    G [3]string
+    H []int
+    I [3]int
+    K []bool
   }
 
   var suite = TStruct1{
@@ -31,6 +36,11 @@ func TestMarshal(t *testing.T) {
       DB: 3.14,
     },
     e: "non-public fields should be skipped",
+    F: []string{"aa", "bb", "cc"},
+    G: [3]string{"aa", "bb", "cc"},
+    H: []int{23, 54, 76},
+    I: [3]int{23, 54, 76},
+    K: []bool{true, false, false},
   }
 
   assert := map[string]string{
@@ -39,6 +49,21 @@ func TestMarshal(t *testing.T) {
     "C": "true",
     "D.DA": "d-value",
     "D.DB": "3.14E+00",
+    "F.0": "aa",
+    "F.1": "bb",
+    "F.2": "cc",
+    "G.0": "aa",
+    "G.1": "bb",
+    "G.2": "cc",
+    "H.0": "23",
+    "H.1": "54",
+    "H.2": "76",
+    "I.0": "23",
+    "I.1": "54",
+    "I.2": "76",
+    "K.0": "true",
+    "K.1": "false",
+    "K.2": "false",
   }
 
   serial, err := Marshal(suite)
@@ -155,6 +180,11 @@ func TestUnmarshal(t *testing.T) {
     B int
     C bool
     D TStruct2
+    F []string
+    G [3]string
+    H []int
+    I [3]int
+    K []bool
   }
 
   suite := map[string]string{
@@ -163,6 +193,21 @@ func TestUnmarshal(t *testing.T) {
     "C": "true",
     "D.DA": "d-value",
     "D.DB": "3.14E+00",
+    "F.0": "aa",
+    "F.1": "bb",
+    "F.2": "cc",
+    "G.0": "aa",
+    "G.1": "bb",
+    "G.2": "cc",
+    "H.0": "23",
+    "H.1": "54",
+    "H.2": "76",
+    "I.0": "23",
+    "I.1": "54",
+    "I.2": "76",
+    "K.0": "true",
+    "K.1": "false",
+    "K.2": "false",
   }
 
   var assert = TStruct1{
@@ -173,6 +218,11 @@ func TestUnmarshal(t *testing.T) {
       DA: "d-value",
       DB: 3.14,
     },
+    F: []string{"aa", "bb", "cc"},
+    G: [3]string{"aa", "bb", "cc"},
+    H: []int{23, 54, 76},
+    I: [3]int{23, 54, 76},
+    K: []bool{true, false, false},
   }
 
   var deserial TStruct1

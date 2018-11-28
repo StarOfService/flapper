@@ -4,6 +4,7 @@ package flapper
 import (
   "fmt"
   "reflect"
+  "strings"
   "strconv"
 )
 
@@ -69,15 +70,16 @@ func New(prefix, delimiter string) (*Flapper, error) {
 // Behaves in a same way as a Marshal function, but uses
 // a custom configuration defined at the Flapper object.
 func (self *Flapper) Marshal(object interface{}) (map[string]string, error) {
-  resp, err := self.marshStruct(reflect.ValueOf(object), self.Prefix)
+  resp := make(map[string]string)
+  resp, err := self.marshStruct(resp, reflect.ValueOf(object), self.Prefix)
   if err != nil {
     return nil, fmt.Errorf("Unable to serialize provided object due to the error: %s", err.Error())
   }
   return resp, nil
 }
 
-func (self *Flapper) marshStruct(object reflect.Value, prefix string) (map[string]string, error) {
-  resp := make(map[string]string)
+func (self *Flapper) marshStruct(resp map[string]string, object reflect.Value, prefix string) (map[string]string, error) {
+  var err error
   for _, f := range structFields(object) {
     name := f.Name
 
@@ -88,38 +90,73 @@ func (self *Flapper) marshStruct(object reflect.Value, prefix string) (map[strin
 
     field := object.FieldByName(name)
 
-    switch field.Kind() {
-    case reflect.Bool:
-      resp[prefixedName] = strconv.FormatBool(field.Bool())
-    case reflect.Float32:
-      resp[prefixedName] = strconv.FormatFloat(field.Float(), 'E', -1, 32)
-    case reflect.Float64:
-      resp[prefixedName] = strconv.FormatFloat(field.Float(), 'E', -1, 64)
-    case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-      resp[prefixedName] = strconv.FormatInt(field.Int(), 10)
-    case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-      resp[prefixedName] = strconv.FormatUint(field.Uint(), 10)
-    case reflect.String:
-      resp[prefixedName] = field.String()
-    case reflect.Struct:
-      fm, err := self.marshStruct(field, prefixedName)
+    resp, err = self.marshField(resp, field, prefixedName)
+    if err != nil {
+      return nil, err
+    }
+  }
+  return resp, nil
+}
+
+
+func (self *Flapper) marshField(resp map[string]string, field reflect.Value, prefix string) (map[string]string, error) {
+  var err error
+  switch field.Kind() {
+
+  case reflect.Bool:
+    resp[prefix] = strconv.FormatBool(field.Bool())
+
+  case reflect.Float32:
+    resp[prefix] = strconv.FormatFloat(field.Float(), 'E', -1, 32)
+
+  case reflect.Float64:
+    resp[prefix] = strconv.FormatFloat(field.Float(), 'E', -1, 64)
+
+  case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+    resp[prefix] = strconv.FormatInt(field.Int(), 10)
+
+  case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+    resp[prefix] = strconv.FormatUint(field.Uint(), 10)
+
+  case reflect.String:
+    resp[prefix] = field.String()
+
+  case reflect.Slice, reflect.Array:
+    for i := 0; i < field.Len(); i++ {
+      prefixIndexed := prefix + self.Delimiter + strconv.Itoa(i)
+      resp, err = self.marshField(resp, field.Index(i), prefixIndexed)
       if err != nil {
-        return nil, fmt.Errorf("Unable to serialize field '%s' for the provided object due to the error: %s", name, err.Error())
+        return nil, err
       }
-      for k, v := range fm {
-        resp[k] = v
-      }
-    default:
-      return nil, fmt.Errorf("Field '%s' has unsuppoerted type: %s", name, field.Kind())
     }
 
+  //// It isn't enough. Keys may have different types, thus we have to serealize them too.
+  // case reflect.Map:
+  //   for i := 0; i < field.MapKeys.Len(); i++ {
+  //     prefixedName = prefixedName + self.Delimiter + field.MapKeys.Index(i).String()
+  //     newField := field.MapIndex(field.MapKeys.Index(i))
+  //     resp, err := self.marshComplexField(resp, newField, prefixedName)
+  //     if err != nil {
+  //       return nil, err
+  //     }
+  //   }
+
+  case reflect.Struct:
+    resp, err = self.marshStruct(resp, field, prefix)
+    if err != nil {
+      return nil, err
+    }
+
+  default:
+    return nil, fmt.Errorf("Field '%s' has unsuppoerted type: %s", prefix, field.Kind())
   }
+
   return resp, nil
 }
 
 // Behaves in a same way as a Unmarshal function, but uses
 // a custom configuration defined at the Flapper object.
-func (self *Flapper) Unmarshal(data map[string]string, object interface{}) error {  
+func (self *Flapper) Unmarshal(data map[string]string, object interface{}) error {
   po := reflect.ValueOf(object).Elem()
   err := self.unmarshStruct(data, po, self.Prefix)
   if err != nil {
@@ -137,53 +174,122 @@ func (self *Flapper) unmarshStruct(data map[string]string, object reflect.Value,
     if len(prefix) > 0 {
       prefixedName = prefix + self.Delimiter + name
     }
-    value := data[prefixedName]
 
     field := object.FieldByName(name)
 
-    switch field.Kind() {
-    case reflect.Bool:
-      d, err := strconv.ParseBool(value)
-      if err != nil {
-        return fmt.Errorf("Failed to parse 'bool' value '%s' for field '%s' due to the error: %s", value, name, err.Error())
+    err := self.unmarshField(data, field, prefixedName)
+    if err != nil {
+      return err
+    }
+  }
+  return nil
+}
+
+func (self *Flapper) unmarshField(data map[string]string, field reflect.Value, prefix string) error {
+  switch field.Kind() {
+
+  case reflect.Bool:
+    value := data[prefix]
+    d, err := strconv.ParseBool(value)
+    if err != nil {
+      return fmt.Errorf("Failed to parse 'bool' value '%s' for field '%s' due to the error: %s", value, prefix, err.Error())
+    }
+    field.SetBool(d)
+
+  case reflect.Float32:
+    value := data[prefix]
+    d, err := strconv.ParseFloat(value, 32)
+    if err != nil {
+      return fmt.Errorf("Failed to parse 'float32' value '%s' for field '%s' due to the error: %s", value, prefix, err.Error())
+    }
+    field.SetFloat(d)
+
+  case reflect.Float64:
+    value := data[prefix]
+    d, err := strconv.ParseFloat(value, 64)
+    if err != nil {
+      return fmt.Errorf("Failed to parse 'float64' value '%s' for field '%s' due to the error: %s", value, prefix, err.Error())
+    }
+    field.SetFloat(d)
+
+  case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+    value := data[prefix]
+    d, err := strconv.ParseInt(value, 10, 64)
+    if err != nil {
+      return fmt.Errorf("Failed to parse 'Int64' value '%s' for field '%s' due to the error: %s", value, prefix, err.Error())
+    }
+    field.SetInt(d)
+
+  case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+    value := data[prefix]
+    d, err := strconv.ParseUint(value, 10, 64)
+    if err != nil {
+      return fmt.Errorf("Failed to parse 'Uint64' value '%s' for field '%s' due to the error: %s", value, prefix, err.Error())
+    }
+    field.SetUint(d)
+
+  case reflect.String:
+    field.SetString(data[prefix])
+
+  case reflect.Array:
+    var arrLen int
+    prefixIndexed := prefix + self.Delimiter
+    for k, _ := range data {
+      if strings.HasPrefix(k, prefixIndexed) {
+        arrLen++
       }
-      field.SetBool(d)
-    case reflect.Float32:
-      d, err := strconv.ParseFloat(value, 32)
+    }
+    if arrLen > field.Len() {
+      arrLen = field.Len()
+    }
+    for i := 0; i < arrLen; i++ {
+      err := self.unmarshField(data, field.Index(i), prefixIndexed + strconv.Itoa(i))
       if err != nil {
-        return fmt.Errorf("Failed to parse 'float32' value '%s' for field '%s' due to the error: %s", value, name, err.Error())
+        return err
       }
-      field.SetFloat(d)
-    case reflect.Float64:
-      d, err := strconv.ParseFloat(value, 64)
-      if err != nil {
-        return fmt.Errorf("Failed to parse 'float64' value '%s' for field '%s' due to the error: %s", value, name, err.Error())
-      }
-      field.SetFloat(d)
-    case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-      d, err := strconv.ParseInt(value, 10, 64)
-      if err != nil {
-        return fmt.Errorf("Failed to parse 'Int64' value '%s' for field '%s' due to the error: %s", value, name, err.Error())
-      }
-      field.SetInt(d)
-    case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-      d, err := strconv.ParseUint(value, 10, 64)
-      if err != nil {
-        return fmt.Errorf("Failed to parse 'Uint64' value '%s' for field '%s' due to the error: %s", value, name, err.Error())
-      }
-      field.SetUint(d)
-    case reflect.String:
-      field.SetString(value)
-    case reflect.Struct:
-      err := self.unmarshStruct(data, field, prefixedName)
-      if err != nil {
-        return fmt.Errorf("Unable to deserialize field '%s' for the provided object due to the error: %s", name, err.Error())
-      }
-    default:
-      return fmt.Errorf("Field '%s' has unsuppoerted type: %s", name, field.Kind())
     }
 
+  case reflect.Slice:
+    var arrLen int
+    prefixIndexed := prefix + self.Delimiter
+    for k, _ := range data {
+      if strings.HasPrefix(k, prefixIndexed) {
+        arrLen++
+      }
+    }
+    newData := reflect.MakeSlice(field.Type(), arrLen, arrLen)
+    for i := 0; i < arrLen; i++ {
+      err := self.unmarshField(data, newData.Index(i), prefixIndexed + strconv.Itoa(i))
+      if err != nil {
+        return err
+      }
+    }
+    field.Set(newData)
+
+  //// It isn't enough. Keys may have different types, thus we have to serealize them too.
+  // case reflect.Map:
+  //   prefixedName = prefixedName + self.Delimiter
+  //   for k, _ := range data {
+  //     if string.HasPrefix(k, prefixedName) {
+  //       rest := string([]byte(k)[len(prefixedName):])
+  //       itemKey := strings.SplitN(rest, self.Delimiter, 2)[0]
+  //       err := self.unmarshStruct(data, field.MapIndex(itemKey), prefixedName + itemKey)
+  //       if err != nil {
+  //         return err
+  //       }
+  //     }
+  //   }
+
+  case reflect.Struct:
+    err := self.unmarshStruct(data, field, prefix)
+    if err != nil {
+      return err
+    }
+
+  default:
+    return fmt.Errorf("Field '%s' has unsuppoerted type: %s", prefix, field.Kind())
   }
+
   return nil
 }
 
